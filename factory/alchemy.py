@@ -4,6 +4,7 @@
 from __future__ import unicode_literals
 
 from . import base
+from . import errors
 import warnings
 
 SESSION_PERSISTENCE_COMMIT = 'commit'
@@ -45,6 +46,11 @@ class SQLAlchemyOptions(base.FactoryOptions):
                 inherit=True,
                 checker=self._check_sqlalchemy_session_persistence,
             ),
+            base.OptionDefault(
+                'sqlalchemy_get_or_create',
+                (),
+                inherit=True,
+            ),
 
             # DEPRECATED as of 2.8.0, remove in 3.0.0
             base.OptionDefault(
@@ -65,8 +71,39 @@ class SQLAlchemyModelFactory(base.Factory):
         abstract = True
 
     @classmethod
+    def _get_or_create(cls, model_class, *args, **kwargs):
+        """Try to fetch an existing instance of the model and if it's not found, create one.
+
+        For each field name listed in `sqlalchemy_get_or_create` the value of the corresponding
+        named parameter is used to create a `filter_by` SQLAlchemy statement that is executed to
+        fetch an existing instance of the model. If no instance is found a new one will be created
+        and returned.
+        """
+        session = cls._meta.sqlalchemy_session
+        if session is None:
+            raise RuntimeError("No session provided.")
+
+        filters = {}
+        for field in cls._meta.sqlalchemy_get_or_create:
+            if field not in kwargs:
+                raise errors.FactoryError(
+                    "sqlalchemy_get_or_create - "
+                    "Unable to find initialization value for '%s' in factory %s" %
+                    (field, cls.___name__))
+
+            filters[field] = kwargs[field]
+
+        with session.no_autoflush:
+            return session.query(model_class).filter_by(**filters).one_or_none()
+
+    @classmethod
     def _create(cls, model_class, *args, **kwargs):
         """Create an instance of the model, and save it to the database."""
+        if cls._meta.sqlalchemy_get_or_create:
+            obj = cls._get_or_create(model_class, *args, **kwargs)
+            if obj is not None:
+                return obj
+
         session = cls._meta.sqlalchemy_session
         session_persistence = cls._meta.sqlalchemy_session_persistence
         if cls._meta.force_flush:

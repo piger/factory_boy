@@ -37,6 +37,11 @@ class NoSessionFactory(SQLAlchemyModelFactory):
     id = factory.Sequence(lambda n: n)
 
 
+class GetOrCreateFactory(StandardFactory):
+    class Meta:
+        sqlalchemy_get_or_create = ('foo',)
+
+
 class SQLAlchemyPkSequenceTestCase(unittest.TestCase):
 
     def setUp(self):
@@ -197,3 +202,20 @@ class SQLAlchemyNoSessionTestCase(unittest.TestCase):
         inst1 = NoSessionFactory.build()
         self.assertEqual(inst0.id, 0)
         self.assertEqual(inst1.id, 1)
+
+
+class SQLAlchemyGetOrCreateTestCase(unittest.TestCase):
+    def setUp(self):
+        super(SQLAlchemyGetOrCreateTestCase, self).setUp()
+        StandardFactory.reset_sequence(1)
+        StandardFactory._meta.sqlalchemy_session.rollback()
+
+    def test_get_or_create(self):
+        std1 = GetOrCreateFactory.create(foo="bar1")
+        std2 = GetOrCreateFactory.create(foo="bar1")
+        std3 = GetOrCreateFactory.create()
+        self.assertEqual(std1.id, std2.id)
+        self.assertEqual(std1.foo, "bar1")
+        self.assertEqual(std1.foo, std2.foo)
+        self.assertEqual(std3.id, 2)
+        self.assertEqual(std3.foo, "foo2")
